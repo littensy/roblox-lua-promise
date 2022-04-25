@@ -1,6 +1,11 @@
 # Changelog
 
-## [3.2.0] - 2021-9-30
+## [3.3.0] - 2022-04-25
+
+### Added
+- Add Promise.onUnhandledRejection global event
+
+## [3.2.0] - 2021-09-30
 
 ### Changed
 - Allow `Promise.all` to optionally accept multiple promises as varargs instead of an array (e4ba51e)
