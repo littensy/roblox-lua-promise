@@ -1,0 +1,2 @@
+[tools]
+luau-analyze = { source = "JohnnyMorganz/luau-analyze-rojo", version = "0.527" }
