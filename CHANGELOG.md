@@ -1,4 +1,8 @@
 # Changelog
+## [3.5.0] - 2023-01-17
+
+### Added
+- Introduce `andThenAsync` method for chaining promises asynchronously
 
 ## [3.4.0] - 2022-11-23
 
