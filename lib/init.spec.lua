@@ -1342,6 +1342,325 @@ return function()
 		end)
 	end)
 
+	describe("Promise:andThenAsync", function()
+		it("should allow yielding", function()
+			local bindable = Instance.new("BindableEvent")
+			local promise = Promise.fromEvent(bindable.Event):andThenAsync(function()
+				return 5
+			end)
+			expect(promise:getStatus()).to.equal(Promise.Status.Started)
+			bindable:Fire()
+
+			expect(promise:getStatus()).to.equal(Promise.Status.Started)
+
+			advanceTime()
+
+			expect(promise:getStatus()).to.equal(Promise.Status.Resolved)
+			expect(promise._values[1]).to.equal(5)
+		end)
+
+		it("should run andThenAsync on a new thread", function()
+			local bindable = Instance.new("BindableEvent")
+
+			local resolve
+			local parentPromise = Promise.new(function(_resolve)
+				resolve = _resolve
+			end)
+
+			local deadlockedPromise = parentPromise:andThenAsync(function()
+				bindable.Event:Wait()
+				return 5
+			end)
+
+			local successfulPromise = parentPromise:andThenAsync(function()
+				return "foo"
+			end)
+
+			expect(parentPromise:getStatus()).to.equal(Promise.Status.Started)
+			resolve()
+
+			expect(successfulPromise:getStatus()).to.equal(Promise.Status.Started)
+			expect(deadlockedPromise:getStatus()).to.equal(Promise.Status.Started)
+
+			advanceTime()
+
+			expect(successfulPromise:getStatus()).to.equal(Promise.Status.Resolved)
+			expect(successfulPromise._values[1]).to.equal("foo")
+			expect(deadlockedPromise:getStatus()).to.equal(Promise.Status.Started)
+		end)
+
+		it("should chain onto resolved promises", function()
+			local args
+			local argsLength
+			local callCount = 0
+			local badCallCount = 0
+
+			local promise = Promise.resolve(5)
+
+			local chained = promise:andThenAsync(function(...)
+				argsLength, args = pack(...)
+				callCount = callCount + 1
+			end, function()
+				badCallCount = badCallCount + 1
+			end)
+
+			expect(badCallCount).to.equal(0)
+			expect(callCount).to.equal(0)
+
+			expect(chained).to.be.ok()
+			expect(chained).never.to.equal(promise)
+			expect(chained:getStatus()).to.equal(Promise.Status.Started)
+
+			expect(promise).to.be.ok()
+			expect(promise:getStatus()).to.equal(Promise.Status.Resolved)
+			expect(promise._values[1]).to.equal(5)
+
+			advanceTime()
+
+			expect(callCount).to.equal(1)
+			expect(argsLength).to.equal(1)
+			expect(args[1]).to.equal(5)
+
+			expect(chained:getStatus()).to.equal(Promise.Status.Resolved)
+			expect(#chained._values).to.equal(0)
+		end)
+
+		it("should chain onto rejected promises", function()
+			local args
+			local argsLength
+			local callCount = 0
+			local badCallCount = 0
+
+			local promise = Promise.reject(5)
+
+			local chained = promise:andThenAsync(function(...)
+				badCallCount = badCallCount + 1
+			end, function(...)
+				argsLength, args = pack(...)
+				callCount = callCount + 1
+			end)
+
+			expect(badCallCount).to.equal(0)
+			expect(callCount).to.equal(0)
+
+			expect(promise).to.be.ok()
+			expect(promise:getStatus()).to.equal(Promise.Status.Rejected)
+			expect(promise._values[1]).to.equal(5)
+
+			expect(chained).to.be.ok()
+			expect(chained).never.to.equal(promise)
+			expect(chained:getStatus()).to.equal(Promise.Status.Started)
+
+			advanceTime()
+
+			expect(callCount).to.equal(1)
+			expect(argsLength).to.equal(1)
+			expect(args[1]).to.equal(5)
+
+			expect(chained:getStatus()).to.equal(Promise.Status.Resolved)
+
+			expect(#chained._values).to.equal(0)
+		end)
+
+		it("should reject on error in callback", function()
+			local callCount = 0
+
+			local promise = Promise.resolve(1):andThenAsync(function()
+				callCount = callCount + 1
+				error("hahah")
+			end)
+
+			expect(promise).to.be.ok()
+			expect(promise:getStatus()).to.equal(Promise.Status.Started)
+			expect(callCount).to.equal(0)
+
+			advanceTime()
+
+			expect(callCount).to.equal(1)
+			expect(promise:getStatus()).to.equal(Promise.Status.Rejected)
+			expect(tostring(promise._values[1]):find("hahah")).to.be.ok()
+
+			-- Loosely check for the pieces of the stack trace we expect
+			expect(tostring(promise._values[1]):find("init.spec")).to.be.ok()
+			expect(tostring(promise._values[1]):find("runExecutor")).to.be.ok()
+		end)
+
+		it("should chain onto asynchronously resolved promises", function()
+			local args
+			local argsLength
+			local callCount = 0
+			local badCallCount = 0
+
+			local startResolution
+			local promise = Promise.new(function(resolve)
+				startResolution = resolve
+			end)
+
+			local chained = promise:andThenAsync(function(...)
+				args = { ... }
+				argsLength = select("#", ...)
+				callCount = callCount + 1
+			end, function()
+				badCallCount = badCallCount + 1
+			end)
+
+			expect(callCount).to.equal(0)
+			expect(badCallCount).to.equal(0)
+
+			startResolution(6)
+
+			expect(callCount).to.equal(0)
+			expect(badCallCount).to.equal(0)
+
+			expect(promise).to.be.ok()
+			expect(promise:getStatus()).to.equal(Promise.Status.Resolved)
+
+			expect(chained).to.be.ok()
+			expect(chained).never.to.equal(promise)
+			expect(chained:getStatus()).to.equal(Promise.Status.Started)
+
+			advanceTime()
+
+			expect(badCallCount).to.equal(0)
+
+			expect(callCount).to.equal(1)
+			expect(argsLength).to.equal(1)
+			expect(args[1]).to.equal(6)
+
+			expect(promise:getStatus()).to.equal(Promise.Status.Resolved)
+			expect(promise._values[1]).to.equal(6)
+
+			expect(chained:getStatus()).to.equal(Promise.Status.Resolved)
+			expect(#chained._values).to.equal(0)
+		end)
+
+		it("should chain onto asynchronously rejected promises", function()
+			local args
+			local argsLength
+			local callCount = 0
+			local badCallCount = 0
+
+			local startResolution
+			local promise = Promise.new(function(_, reject)
+				startResolution = reject
+			end)
+
+			local chained = promise:andThenAsync(function()
+				badCallCount = badCallCount + 1
+			end, function(...)
+				args = { ... }
+				argsLength = select("#", ...)
+				callCount = callCount + 1
+			end)
+
+			expect(callCount).to.equal(0)
+			expect(badCallCount).to.equal(0)
+
+			startResolution(6)
+
+			expect(callCount).to.equal(0)
+			expect(badCallCount).to.equal(0)
+
+			expect(promise).to.be.ok()
+			expect(promise:getStatus()).to.equal(Promise.Status.Rejected)
+
+			expect(chained).to.be.ok()
+			expect(chained).never.to.equal(promise)
+			expect(chained:getStatus()).to.equal(Promise.Status.Started)
+
+			advanceTime()
+
+			expect(badCallCount).to.equal(0)
+
+			expect(callCount).to.equal(1)
+			expect(argsLength).to.equal(1)
+			expect(args[1]).to.equal(6)
+
+			expect(chained:getStatus()).to.equal(Promise.Status.Resolved)
+			expect(promise._values[1]).to.equal(6)
+			expect(#chained._values).to.equal(0)
+		end)
+
+		it("should propagate errors through multiple levels", function()
+			local x, y, z
+			Promise.new(function(resolve, reject)
+				reject(1, 2, 3)
+			end):andThenAsync(function() end):catch(function(a, b, c)
+				x, y, z = a, b, c
+			end)
+
+			expect(x).to.equal(nil)
+			expect(y).to.equal(nil)
+			expect(z).to.equal(nil)
+
+			advanceTime()
+
+			expect(x).to.equal(1)
+			expect(y).to.equal(2)
+			expect(z).to.equal(3)
+		end)
+
+		it("should propagate errors asynchronously through multiple levels", function()
+			local x, y, z
+
+			local function handleErrors(a, b, c)
+				x, y, z = a, b, c
+				return Promise.reject(a * 10, b * 10, c * 10)
+			end
+			Promise.new(function(resolve, reject)
+				reject(1, 2, 3)
+			end)
+				:andThenAsync(function() end, handleErrors)
+				:andThenAsync(function() end, handleErrors)
+				:andThenAsync(function() end, handleErrors)
+				:catch(function(a, b, c)
+					x, y, z = "caught " .. tostring(a), "caught " .. tostring(b), "caught " .. tostring(c)
+				end)
+
+			expect(x).to.equal(nil)
+			expect(y).to.equal(nil)
+			expect(z).to.equal(nil)
+
+			advanceTime()
+
+			expect(x).to.equal(1)
+			expect(y).to.equal(2)
+			expect(z).to.equal(3)
+
+			advanceTime()
+
+			expect(x).to.equal(10)
+			expect(y).to.equal(20)
+			expect(z).to.equal(30)
+
+			advanceTime()
+
+			-- catch is executed immediately
+			expect(x).to.equal("caught 1000")
+			expect(y).to.equal("caught 2000")
+			expect(z).to.equal("caught 3000")
+		end)
+
+		it("should NOT propagate errors if error handler is provided", function()
+			local x, y, z
+			Promise.new(function(resolve, reject)
+				reject(1, 2, 3)
+			end):andThenAsync(function() end, function() end):catch(function(a, b, c)
+				x, y, z = a, b, c
+			end)
+
+			expect(x).to.equal(nil)
+			expect(y).to.equal(nil)
+			expect(z).to.equal(nil)
+
+			advanceTime()
+
+			expect(x).to.equal(nil)
+			expect(y).to.equal(nil)
+			expect(z).to.equal(nil)
+		end)
+	end)
+
 	describe("Promise:doneCall", function()
 		it("should call the given function with arguments", function()
 			local value1, value2
