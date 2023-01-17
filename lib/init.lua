@@ -1287,6 +1287,49 @@ function Promise.prototype:andThen(successHandler, failureHandler)
 end
 
 --[=[
+	Chains onto an existing Promise, except execution begins after the next `Heartbeat` event, and returns a new Promise.
+
+	:::warning
+	Within the failure handler, you should never assume that the rejection value is a string. Some rejections within the Promise library are represented by [[Error]] objects. If you want to treat it as a string for debugging, you should call `tostring` on it first.
+	:::
+
+	You can return a Promise from the success or failure handler and it will be chained onto.
+
+	Calling `andThenAsync` on a cancelled Promise returns a cancelled Promise.
+
+	:::tip
+	If the Promise returned by `andThenAsync` is cancelled, `successHandler` and `failureHandler` will not run.
+
+	To run code no matter what, use [Promise:finally].
+	:::
+
+	@param successHandler (...: any) -> ...any
+	@param failureHandler? (...: any) -> ...any
+	@return Promise<...any>
+]=]
+function Promise.prototype:andThenAsync(successHandler, failureHandler)
+	assert(successHandler == nil or isCallable(successHandler), string.format(ERROR_NON_FUNCTION, "Promise:andThenAsync"))
+	assert(failureHandler == nil or isCallable(failureHandler), string.format(ERROR_NON_FUNCTION, "Promise:andThenAsync"))
+
+
+	return self:_andThen(
+		debug.traceback(nil, 2),
+		function(...)
+			local length, values = pack(...)
+			return Promise.defer(function(resolve)
+				resolve(unpack(values, 1, length))
+			end)
+		end,
+		function(...)
+			local length, values = pack(...)
+			return Promise.defer(function(_, reject)
+				reject(unpack(values, 1, length))
+			end)
+		end
+	):andThen(successHandler, failureHandler)
+end
+
+--[=[
 	Shorthand for `Promise:andThen(nil, failureHandler)`.
 
 	Returns a Promise that resolves if the `failureHandler` worked without encountering an additional error.
