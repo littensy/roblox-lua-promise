@@ -1,9 +1,9 @@
 {
 	"name": "@rbxts-js/roblox-lua-promise",
-	"version": "3.5.0-ts.1",
+	"version": "3.5.0-ts.2",
 	"description": "An implementation of `Promise` similar to Promise/A+.",
 	"main": "lib/init.lua",
-	"types": "src/index.d.ts",
+	"types": "lib/index.d.ts",
 	"files": [
 		"lib",
 		"default.project.json",
